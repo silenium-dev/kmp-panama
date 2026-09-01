@@ -1,11 +1,10 @@
-# compose-gl
+# kmp-panama
 
-Render OpenGL content into a Composable.
+A KMP wrapper for Panama API supporting all JVM-based platforms
 
 ## Supported platforms
 
-- JVM + Linux
-- JVM + Windows
+- JVM
 - Android
 
 ## Usage
@@ -13,48 +12,16 @@ Render OpenGL content into a Composable.
 You can add the dependency to your project as follows:
 
 ```kotlin
-repositories {
-    maven("https://nexus.silenium.dev/repository/maven-releases/") {
-        name = "silenium-dev-releases"
-    }
-}
 dependencies {
-    implementation("dev.silenium.compose.gl:compose-gl:0.7.4")
+    implementation("dev.silenium.libs.panama:kmp-panama:0.1.0")
 }
 ```
 
 ### Development Snapshots
 
-Snapshots are available from [silenium-dev-snapshots](https://nexus.silenium.dev/repository/maven-snapshots/).
+Snapshots are available
+from [silenium-dev-snapshots](https://nexus.silenium.dev/repository/maven-snapshots/).
 
-### Example
-
-This is a simple example of how to use the library.
-For more complex examples, see [examples](./examples).
-
-```kotlin
-@Composable
-fun App() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) {
-        // Button behind the GLCanvas -> Alpha works. Clicks will be passed through, as long as the GLCanvas is not clickable
-        Button(onClick = {}) {
-            Text("Click me!")
-        }
-        // Size needs to be specified, as the default size of a GLCanvas is 0x0
-        GLCanvas(modifier = Modifier.size(100.dp)) {
-            // Translucent blue
-            // Compatible libraries:
-            // - Desktop: LWJGL GL
-            // - Android: integrated GLESxx
-            GL30.glClearColor(0f, 0f, 0.5f, 0.5f)
-            GL30.glClear(GL30.GL_COLOR_BUFFER_BIT)
-        }
-    }
-}
-
-fun main() = application {
-    Window(onCloseRequest = ::exitApplication) {
-        App()
-    }
-}
-```
+The exposed API is a subset of the [Panama API](https://openjdk.org/projects/panama/), just with a
+different package name: `dev.silenium.libs.foreign`
+If you're missing anything, please open an issue or, even better, a pull request.
