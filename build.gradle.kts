@@ -27,6 +27,18 @@ kotlin {
 }
 
 conventions {
+    jvm {
+        jvmTarget = ProjectConfig.JVM_TARGET
+    }
+    android {
+        compileSdk {
+            version = release(ProjectConfig.COMPILE_SDK)
+        }
+        minSdk = ProjectConfig.MIN_SDK
+        jvmTarget = ProjectConfig.ANDROID_JVM_TARGET
+
+        namespace = "dev.silenium.libs.panama"
+    }
     publishing {
         enabled = true
         licenseFile = rootProject.file("LICENSE")
@@ -53,20 +65,5 @@ conventions {
                 url = "https://github.com/silenium-dev/kmp-panama"
             }
         }
-    }
-    jvm {
-        jvmTarget = ProjectConfig.JVM_TARGET
-    }
-    publishing {
-        enabled = true
-    }
-    android {
-        compileSdk {
-            version = release(ProjectConfig.COMPILE_SDK)
-        }
-        minSdk = ProjectConfig.MIN_SDK
-        jvmTarget = ProjectConfig.ANDROID_JVM_TARGET
-
-        namespace = "dev.silenium.libs.panama"
     }
 }
