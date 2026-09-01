@@ -98,10 +98,9 @@ object BuildRelease : BuildType({
         gradle {
             tasks = """
                 |clean
-                |:gradle-plugin:build
                 |check
                 |dokkaGenerate
-                |:gradle-plugin:publish
+                |publish
             """.trimMargin().replace("\n", " ")
             gradleParams = gradleArgs
         }
@@ -160,10 +159,9 @@ object BuildSnapshot : BuildType({
         gradle {
             tasks = """
                 |clean
-                |:gradle-plugin:build
                 |check
                 |dokkaGenerate
-                |:gradle-plugin:publish
+                |publish
             """.trimMargin().replace("\n", " ")
             gradleParams = """
                 |-Pci=true
