@@ -27,6 +27,33 @@ kotlin {
 }
 
 conventions {
+    publishing {
+        enabled = true
+        licenseFile = rootProject.file("LICENSE")
+        pomSpec.set {
+            name = project.name
+            description = "A KMP wrapper for Panama API supporting all JVM-based platforms"
+            url = "https://github.com/silenium-dev/kmp-panama"
+            inceptionYear = "2026"
+            licenses {
+                license {
+                    name = "GPL-3.0-or-later"
+                    url = "https://spdx.org/licenses/GPL-3.0-or-later.html"
+                }
+            }
+            developers {
+                developer {
+                    id = "silenium-dev"
+                    email = "support@silenium-dev.net"
+                }
+            }
+            scm {
+                connection = "scm:git:git://github.com/silenium-dev/kmp-panama.git"
+                developerConnection = "scm:git:ssh://github.com/silenium-dev/kmp-panama.git"
+                url = "https://github.com/silenium-dev/kmp-panama"
+            }
+        }
+    }
     jvm {
         jvmTarget = ProjectConfig.JVM_TARGET
     }
@@ -40,6 +67,6 @@ conventions {
         minSdk = ProjectConfig.MIN_SDK
         jvmTarget = ProjectConfig.ANDROID_JVM_TARGET
 
-        namespace = "dev.silenium.libs.foreign"
+        namespace = "dev.silenium.libs.panama"
     }
 }
