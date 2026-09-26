@@ -1,8 +1,6 @@
 package dev.silenium.libs.foreign
 
 import java.lang.invoke.MethodHandles
-import java.lang.invoke.MethodHandle as JMethodHandle
-import java.lang.invoke.VarHandle as JVarHandle
 import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.nio.file.Path
@@ -16,21 +14,26 @@ import java.lang.foreign.MemoryLayout as FMemoryLayout
 import java.lang.foreign.MemorySegment as FMemorySegment
 import java.lang.foreign.SymbolLookup as FSymbolLookup
 import java.lang.foreign.ValueLayout as FValueLayout
+import java.lang.invoke.MethodHandle as JMethodHandle
+import java.lang.invoke.VarHandle as JVarHandle
 
-@JvmInline
-actual value class SymbolLookup internal constructor(internal val value: Any) {
+actual class SymbolLookup internal actual constructor(internal actual val value: Any) {
     internal val lookup: FSymbolLookup get() = value as FSymbolLookup
 
     actual fun find(name: String) = lookup.find(name).getOrNull()?.let(::MemorySegment)
     actual fun findOrThrow(name: String) = lookup.findOrThrow(name).let(::MemorySegment)
+    actual fun or(other: SymbolLookup): SymbolLookup = lookup.or(other.lookup).let(::SymbolLookup)
 
     actual companion object {
+        @JvmStatic
         actual fun loaderLookup(): SymbolLookup =
             FSymbolLookup.loaderLookup().let(::SymbolLookup)
 
+        @JvmStatic
         actual fun libraryLookup(name: String, arena: Arena): SymbolLookup =
             FSymbolLookup.libraryLookup(name, arena.arena).let(::SymbolLookup)
 
+        @JvmStatic
         actual fun libraryLookup(path: Path, arena: Arena): SymbolLookup =
             FSymbolLookup.libraryLookup(path, arena.arena).let(::SymbolLookup)
     }
@@ -43,25 +46,26 @@ object SegmentMapper {
     @JvmStatic
     fun toNative(segment: MemorySegment): FMemorySegment = segment.segment
 
+    @JvmStatic
     fun map(handle: MethodHandle): MethodHandle {
         val segmentIndices = handle.value.type().parameterList().withIndex().filter {
             it.value.isAssignableFrom(MemorySegment::class.java)
         }.map(IndexedValue<*>::index)
         val fromNative = MethodHandles.lookup().unreflect(SegmentMapper::fromNative.javaMethod!!)
         val toNative = MethodHandles.lookup().unreflect(SegmentMapper::toNative.javaMethod!!)
-        val handle = if (handle.value.type().returnType().isAssignableFrom(MemorySegment::class.java)) {
-            MethodHandles.filterReturnValue(handle.value, toNative)
-        } else {
-            handle.value
-        }
+        val handle =
+            if (handle.value.type().returnType().isAssignableFrom(MemorySegment::class.java)) {
+                MethodHandles.filterReturnValue(handle.value, toNative)
+            } else {
+                handle.value
+            }
         return segmentIndices.fold(handle) { result, index ->
             MethodHandles.filterArguments(result, index, fromNative)
         }.let(::MethodHandle)
     }
 }
 
-@JvmInline
-actual value class Linker internal constructor(internal val value: Any) {
+actual class Linker internal actual constructor(internal actual val value: Any) {
     internal val linker: FLinker get() = value as FLinker
 
     actual fun downcallHandle(
@@ -70,6 +74,16 @@ actual value class Linker internal constructor(internal val value: Any) {
     ): MethodHandle = linker.downcallHandle(
         symbol.segment,
         descriptor.descriptor,
+    ).let(::MethodHandle)
+
+    actual fun downcallHandle(
+        symbol: MemorySegment,
+        descriptor: FunctionDescriptor,
+        vararg option: Option,
+    ): MethodHandle = linker.downcallHandle(
+        symbol.segment,
+        descriptor.descriptor,
+        *option.map(Option::option).toTypedArray()
     ).let(::MethodHandle)
 
     actual fun upcallStub(
@@ -85,30 +99,59 @@ actual value class Linker internal constructor(internal val value: Any) {
     actual fun defaultLookup(): SymbolLookup =
         linker.defaultLookup().let(::SymbolLookup)
 
+    actual class Option internal actual constructor(internal actual val value: Any) {
+        internal val option get() = value as FLinker.Option
+
+        actual companion object {
+            @JvmStatic
+            actual fun firstVariadicArg(var0: Int): Option =
+                FLinker.Option.firstVariadicArg(var0).let(::Option)
+
+            @JvmStatic
+            actual fun captureCallState(vararg var0: String): Option =
+                FLinker.Option.captureCallState(*var0).let(::Option)
+
+            @JvmStatic
+            actual fun captureStateLayout(): StructLayout =
+                FLinker.Option.captureStateLayout().let(::StructLayout)
+
+            @JvmStatic
+            actual fun critical(var0: Boolean): Option =
+                FLinker.Option.critical(var0).let(::Option)
+        }
+    }
+
     actual companion object {
+        @JvmStatic
         actual fun nativeLinker(): Linker =
             FLinker.nativeLinker().let(::Linker)
     }
 }
 
-@JvmInline
-actual value class VarHandle(actual val value: Any) {
+actual class VarHandle internal actual constructor(internal actual val value: Any) {
     internal val varHandle: JVarHandle get() = value as JVarHandle
     actual fun set(vararg args: Any?) {
         val mappedArgs = args.map(Any?::toNative)
-        varHandle.toMethodHandle(JVarHandle.AccessMode.SET).invokeWithArguments(mappedArgs)
+        varHandle.toMethodHandle(JVarHandle.AccessMode.SET)
+            .invokeWithArguments(mappedArgs)
     }
 
     actual fun get(vararg args: Any?): Any? {
         val mappedArgs = args.map(Any?::toNative)
-        val result = varHandle.toMethodHandle(JVarHandle.AccessMode.GET).invokeWithArguments(mappedArgs)
+        val result = varHandle.toMethodHandle(JVarHandle.AccessMode.GET)
+            .invokeWithArguments(mappedArgs)
         return result.fromNative()
     }
 }
 
-@JvmInline
-actual value class MethodHandle(actual val value: JMethodHandle) {
+actual class MethodHandle internal actual constructor(internal actual val value: JMethodHandle) {
     actual operator fun invoke(vararg args: Any?): Any? {
+        val mappedArgs = args.map(Any?::toNative)
+        val result = value.invokeWithArguments(mappedArgs)
+        return result.fromNative()
+    }
+
+    actual fun invokeExact(vararg args: Any?): Any? {
         val mappedArgs = args.map(Any?::toNative)
         val result = value.invokeWithArguments(mappedArgs)
         return result.fromNative()
@@ -116,6 +159,9 @@ actual value class MethodHandle(actual val value: JMethodHandle) {
 
     actual fun bindTo(target: Any?): MethodHandle =
         MethodHandle(value.bindTo(target.toNative()))
+
+    actual fun asSpreader(klass: Class<*>, count: Int): MethodHandle =
+        value.asSpreader(klass, count).let(::MethodHandle)
 }
 
 private fun Any?.toNative() = when (this) {
@@ -128,11 +174,18 @@ private fun Any?.fromNative() = when (this) {
     else -> this
 }
 
-@JvmInline
-actual value class FunctionDescriptor(val value: Any) {
+actual class FunctionDescriptor internal actual constructor(internal actual val value: Any) {
     internal val descriptor: FFunctionDescriptor get() = value as FFunctionDescriptor
 
+    actual fun appendArgumentLayouts(vararg layouts: MemoryLayout): FunctionDescriptor =
+        descriptor.appendArgumentLayouts(*layouts.map(MemoryLayout::layout).toTypedArray())
+            .let(::FunctionDescriptor)
+
+    actual fun argumentLayouts(): List<MemoryLayout> =
+        descriptor.argumentLayouts().map(::UnknownMemoryLayout)
+
     actual companion object {
+        @JvmStatic
         actual fun of(
             returnType: MemoryLayout,
             vararg parameters: MemoryLayout,
@@ -141,6 +194,7 @@ actual value class FunctionDescriptor(val value: Any) {
             *parameters.map(MemoryLayout::layout).toTypedArray()
         ).let(::FunctionDescriptor)
 
+        @JvmStatic
         actual fun ofVoid(
             vararg parameters: MemoryLayout,
         ) = FFunctionDescriptor.ofVoid(
@@ -149,8 +203,7 @@ actual value class FunctionDescriptor(val value: Any) {
     }
 }
 
-@JvmInline
-actual value class Arena internal constructor(internal val value: Any) : SegmentAllocator,
+actual class Arena internal actual constructor(internal actual val value: Any) : SegmentAllocator,
     AutoCloseable {
     internal val arena: FArena get() = value as FArena
 
@@ -165,6 +218,9 @@ actual value class Arena internal constructor(internal val value: Any) : Segment
 
     actual override fun allocate(layout: MemoryLayout, count: Long) =
         MemorySegment(arena.allocate(layout.layout, count))
+
+    actual override fun allocateFrom(str: String): MemorySegment =
+        arena.allocateFrom(str).let(::MemorySegment)
 
     actual override fun allocateFrom(str: String, charset: Charset): MemorySegment =
         arena.allocateFrom(str, charset).let(::MemorySegment)
@@ -229,18 +285,25 @@ actual value class Arena internal constructor(internal val value: Any) : Segment
     ): MemorySegment = arena.allocateFrom(elementLayout.layout, *values).let(::MemorySegment)
 
     actual companion object {
+        @JvmStatic
         actual fun ofAuto() = Arena(FArena.ofAuto())
+
+        @JvmStatic
         actual fun ofShared() = Arena(FArena.ofShared())
+
+        @JvmStatic
         actual fun ofConfined() = Arena(FArena.ofConfined())
+
+        @JvmStatic
         actual fun global() = Arena(FArena.global())
     }
 }
 
-@JvmInline
-actual value class MemorySegment internal constructor(internal actual val value: Any) {
+actual class MemorySegment internal actual constructor(internal actual val value: Any) {
     internal val segment: FMemorySegment get() = value as FMemorySegment
 
-    actual val address: Long get() = segment.address()
+    actual fun address(): Long = segment.address()
+    actual fun byteSize(): Long = segment.byteSize()
     actual fun asReadOnly() = MemorySegment(segment.asReadOnly())
     actual fun asSlice(offset: Long, size: Long): MemorySegment =
         segment.asSlice(offset, size).let(::MemorySegment)
@@ -271,6 +334,12 @@ actual value class MemorySegment internal constructor(internal actual val value:
 
     actual fun getString(offset: Long, charset: Charset): String =
         segment.getString(offset, charset)
+
+    actual fun setString(offset: Long, value: String, charset: Charset) =
+        segment.setString(offset, value, charset)
+
+    actual fun setString(offset: Long, value: String) =
+        segment.setString(offset, value)
 
     actual fun asByteBuffer(): ByteBuffer =
         segment.asByteBuffer()
@@ -391,31 +460,46 @@ actual value class MemorySegment internal constructor(internal actual val value:
     }
 
     actual companion object {
+        @JvmStatic
+        actual fun ofBuffer(buffer: ByteBuffer): MemorySegment =
+            FMemorySegment.ofBuffer(buffer).let(::MemorySegment)
+
+        @JvmStatic
         actual fun ofArray(values: ByteArray): MemorySegment =
             FMemorySegment.ofArray(values).let(::MemorySegment)
 
+        @JvmStatic
         actual fun ofArray(values: CharArray): MemorySegment =
             FMemorySegment.ofArray(values).let(::MemorySegment)
 
+        @JvmStatic
         actual fun ofArray(values: ShortArray): MemorySegment =
             FMemorySegment.ofArray(values).let(::MemorySegment)
 
+        @JvmStatic
         actual fun ofArray(values: IntArray): MemorySegment =
             FMemorySegment.ofArray(values).let(::MemorySegment)
 
+        @JvmStatic
         actual fun ofArray(values: LongArray): MemorySegment =
             FMemorySegment.ofArray(values).let(::MemorySegment)
 
+        @JvmStatic
         actual fun ofArray(values: FloatArray): MemorySegment =
             FMemorySegment.ofArray(values).let(::MemorySegment)
 
+        @JvmStatic
         actual fun ofArray(values: DoubleArray): MemorySegment =
             FMemorySegment.ofArray(values).let(::MemorySegment)
 
+        @JvmStatic
         actual fun ofAddress(address: Long): MemorySegment =
             FMemorySegment.ofAddress(address).let(::MemorySegment)
 
+        @JvmStatic
         actual val NULL = MemorySegment(FMemorySegment.NULL)
+
+        @JvmStatic
         actual fun copy(
             src: MemorySegment,
             srcOffset: Long,
@@ -424,6 +508,7 @@ actual value class MemorySegment internal constructor(internal actual val value:
             bytes: Long
         ) = FMemorySegment.copy(src.segment, srcOffset, dst.segment, dstOffset, bytes)
 
+        @JvmStatic
         actual fun copy(
             src: MemorySegment,
             srcElementLayout: ValueLayout,
@@ -442,6 +527,7 @@ actual value class MemorySegment internal constructor(internal actual val value:
             count
         )
 
+        @JvmStatic
         actual fun copy(
             src: MemorySegment,
             srcLayout: ValueLayout,
@@ -458,6 +544,7 @@ actual value class MemorySegment internal constructor(internal actual val value:
             count
         )
 
+        @JvmStatic
         actual fun copy(
             srcArray: Any,
             srcIndex: Int,
@@ -474,6 +561,7 @@ actual value class MemorySegment internal constructor(internal actual val value:
             count
         )
 
+        @JvmStatic
         actual fun mismatch(
             src: MemorySegment,
             srcRange: LongRange,
@@ -490,6 +578,13 @@ actual value class MemorySegment internal constructor(internal actual val value:
     }
 }
 
+internal actual class UnknownMemoryLayout internal actual constructor(actual override val value: Any) :
+    MemoryLayout {
+    override val layout: FMemoryLayout get() = value as FMemoryLayout
+    actual override fun withName(name: String): UnknownMemoryLayout =
+        layout.withName(name).let(::UnknownMemoryLayout)
+}
+
 actual sealed interface MemoryLayout {
     actual val value: Any
     val layout: FMemoryLayout
@@ -503,43 +598,48 @@ actual sealed interface MemoryLayout {
 
     actual fun withName(name: String): MemoryLayout
 
-    @JvmInline
-    actual value class PathElement internal constructor(internal actual val value: Any) {
+    actual class PathElement internal actual constructor(internal actual val value: Any) {
         constructor(element: FMemoryLayout.PathElement) : this(element as Any)
 
         internal val element: FMemoryLayout.PathElement get() = value as FMemoryLayout.PathElement
 
         actual companion object {
+            @JvmStatic
             actual fun groupElement(name: String): PathElement =
                 FMemoryLayout.PathElement.groupElement(name).let(::PathElement)
 
+            @JvmStatic
             actual fun groupElement(index: Long): PathElement =
                 FMemoryLayout.PathElement.groupElement(index).let(::PathElement)
 
+            @JvmStatic
             actual fun sequenceElement(index: Long): PathElement =
                 FMemoryLayout.PathElement.sequenceElement(index).let(::PathElement)
         }
     }
 
     actual companion object {
+        @JvmStatic
         actual fun sequenceLayout(elementCount: Long, elementLayout: MemoryLayout): SequenceLayout =
             FMemoryLayout.sequenceLayout(elementCount, elementLayout.layout).let(::SequenceLayout)
 
+        @JvmStatic
         actual fun structLayout(elements: List<MemoryLayout>): StructLayout =
             FMemoryLayout.structLayout(*elements.map { it.layout }.toTypedArray())
                 .let(::StructLayout)
 
+        @JvmStatic
         actual fun paddingLayout(byteSize: Long): PaddingLayout =
             FMemoryLayout.paddingLayout(byteSize).let(::PaddingLayout)
 
+        @JvmStatic
         actual fun unionLayout(elements: List<MemoryLayout>): UnionLayout =
             FMemoryLayout.unionLayout(*elements.map { it.layout }.toTypedArray())
                 .let(::UnionLayout)
     }
 }
 
-@JvmInline
-actual value class SequenceLayout internal actual constructor(actual override val value: Any) :
+actual class SequenceLayout internal actual constructor(actual override val value: Any) :
     MemoryLayout {
     override val layout: FMemoryLayout
         get() = value as FMemoryLayout
@@ -548,8 +648,7 @@ actual value class SequenceLayout internal actual constructor(actual override va
         layout.withName(name).let(::SequenceLayout)
 }
 
-@JvmInline
-actual value class GroupLayout internal actual constructor(actual override val value: Any) :
+actual class GroupLayout internal actual constructor(actual override val value: Any) :
     MemoryLayout {
     override val layout: FMemoryLayout
         get() = value as FMemoryLayout
@@ -558,8 +657,7 @@ actual value class GroupLayout internal actual constructor(actual override val v
         layout.withName(name).let(::GroupLayout)
 }
 
-@JvmInline
-actual value class PaddingLayout internal actual constructor(actual override val value: Any) :
+actual class PaddingLayout internal actual constructor(actual override val value: Any) :
     MemoryLayout {
     override val layout: FMemoryLayout
         get() = value as FMemoryLayout
@@ -568,8 +666,7 @@ actual value class PaddingLayout internal actual constructor(actual override val
         layout.withName(name).let(::PaddingLayout)
 }
 
-@JvmInline
-actual value class StructLayout internal actual constructor(actual override val value: Any) :
+actual class StructLayout internal actual constructor(actual override val value: Any) :
     MemoryLayout {
     override val layout: FMemoryLayout
         get() = value as FMemoryLayout
@@ -578,8 +675,7 @@ actual value class StructLayout internal actual constructor(actual override val 
         layout.withName(name).let(::StructLayout)
 }
 
-@JvmInline
-actual value class UnionLayout internal actual constructor(actual override val value: Any) :
+actual class UnionLayout internal actual constructor(actual override val value: Any) :
     MemoryLayout {
     override val layout: FMemoryLayout
         get() = value as FMemoryLayout
@@ -593,8 +689,7 @@ actual sealed interface ValueLayout : MemoryLayout {
 
     actual override fun withName(name: String): ValueLayout
 
-    @JvmInline
-    actual value class OfBoolean internal actual constructor(actual override val value: Any) :
+    actual class OfBoolean internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfBoolean get() = value as FValueLayout.OfBoolean
 
@@ -603,8 +698,7 @@ actual sealed interface ValueLayout : MemoryLayout {
 
     }
 
-    @JvmInline
-    actual value class OfByte internal actual constructor(actual override val value: Any) :
+    actual class OfByte internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfByte get() = value as FValueLayout.OfByte
 
@@ -612,8 +706,7 @@ actual sealed interface ValueLayout : MemoryLayout {
             layout.withName(name).let(::OfByte)
     }
 
-    @JvmInline
-    actual value class OfChar internal actual constructor(actual override val value: Any) :
+    actual class OfChar internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfChar get() = value as FValueLayout.OfChar
 
@@ -621,8 +714,7 @@ actual sealed interface ValueLayout : MemoryLayout {
             layout.withName(name).let(::OfChar)
     }
 
-    @JvmInline
-    actual value class OfShort internal actual constructor(actual override val value: Any) :
+    actual class OfShort internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfShort get() = value as FValueLayout.OfShort
 
@@ -630,8 +722,7 @@ actual sealed interface ValueLayout : MemoryLayout {
             layout.withName(name).let(::OfShort)
     }
 
-    @JvmInline
-    actual value class OfInt internal actual constructor(actual override val value: Any) :
+    actual class OfInt internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfInt get() = value as FValueLayout.OfInt
 
@@ -639,8 +730,7 @@ actual sealed interface ValueLayout : MemoryLayout {
             layout.withName(name).let(::OfInt)
     }
 
-    @JvmInline
-    actual value class OfLong internal actual constructor(actual override val value: Any) :
+    actual class OfLong internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfLong get() = value as FValueLayout.OfLong
 
@@ -648,8 +738,7 @@ actual sealed interface ValueLayout : MemoryLayout {
             layout.withName(name).let(::OfLong)
     }
 
-    @JvmInline
-    actual value class OfFloat internal actual constructor(actual override val value: Any) :
+    actual class OfFloat internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfFloat get() = value as FValueLayout.OfFloat
 
@@ -657,8 +746,7 @@ actual sealed interface ValueLayout : MemoryLayout {
             layout.withName(name).let(::OfFloat)
     }
 
-    @JvmInline
-    actual value class OfDouble internal actual constructor(actual override val value: Any) :
+    actual class OfDouble internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfDouble get() = value as FValueLayout.OfDouble
 
@@ -667,44 +755,73 @@ actual sealed interface ValueLayout : MemoryLayout {
     }
 
     actual companion object {
+        @JvmStatic
         actual val ADDRESS: AddressLayout =
             FValueLayout.ADDRESS.let(::AddressLayout)
+
+        @JvmStatic
         actual val JAVA_BYTE: OfByte =
             FValueLayout.JAVA_BYTE.let(::OfByte)
+
+        @JvmStatic
         actual val JAVA_BOOLEAN: OfBoolean =
             FValueLayout.JAVA_BOOLEAN.let(::OfBoolean)
+
+        @JvmStatic
         actual val JAVA_CHAR: OfChar =
             FValueLayout.JAVA_CHAR.let(::OfChar)
+
+        @JvmStatic
         actual val JAVA_SHORT: OfShort =
             FValueLayout.JAVA_SHORT.let(::OfShort)
+
+        @JvmStatic
         actual val JAVA_INT: OfInt =
             FValueLayout.JAVA_INT.let(::OfInt)
+
+        @JvmStatic
         actual val JAVA_LONG: OfLong =
             FValueLayout.JAVA_LONG.let(::OfLong)
+
+        @JvmStatic
         actual val JAVA_FLOAT: OfFloat =
             FValueLayout.JAVA_FLOAT.let(::OfFloat)
+
+        @JvmStatic
         actual val JAVA_DOUBLE: OfDouble =
             FValueLayout.JAVA_DOUBLE.let(::OfDouble)
 
+        @JvmStatic
         actual val ADDRESS_UNALIGNED: AddressLayout =
             FValueLayout.ADDRESS_UNALIGNED.let(::AddressLayout)
+
+        @JvmStatic
         actual val JAVA_CHAR_UNALIGNED: OfChar =
             FValueLayout.JAVA_CHAR_UNALIGNED.let(::OfChar)
+
+        @JvmStatic
         actual val JAVA_SHORT_UNALIGNED: OfShort =
             FValueLayout.JAVA_SHORT_UNALIGNED.let(::OfShort)
+
+        @JvmStatic
         actual val JAVA_INT_UNALIGNED: OfInt =
             FValueLayout.JAVA_INT_UNALIGNED.let(::OfInt)
+
+        @JvmStatic
         actual val JAVA_LONG_UNALIGNED: OfLong =
             FValueLayout.JAVA_LONG_UNALIGNED.let(::OfLong)
+
+        @JvmStatic
         actual val JAVA_FLOAT_UNALIGNED: OfFloat =
             FValueLayout.JAVA_FLOAT_UNALIGNED.let(::OfFloat)
+
+        @JvmStatic
         actual val JAVA_DOUBLE_UNALIGNED: OfDouble =
             FValueLayout.JAVA_DOUBLE_UNALIGNED.let(::OfDouble)
     }
 }
 
-@JvmInline
-actual value class AddressLayout internal actual constructor(actual override val value: Any) :
+actual class AddressLayout internal actual constructor(actual override val value: Any) :
     ValueLayout {
     override val layout: FAddressLayout get() = value as FAddressLayout
 

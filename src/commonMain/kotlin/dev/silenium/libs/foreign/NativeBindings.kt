@@ -4,25 +4,38 @@ import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.nio.file.Path
 import java.lang.invoke.MethodHandle as JMethodHandle
-import java.lang.invoke.VarHandle as JVarHandle
 
-@JvmInline
-expect value class SymbolLookup internal constructor(internal val value: Any) {
+expect class SymbolLookup internal constructor(value: Any) {
+    internal val value: Any
+
     fun find(name: String): MemorySegment?
     fun findOrThrow(name: String): MemorySegment
+    fun or(other: SymbolLookup): SymbolLookup
 
     companion object {
+        @JvmStatic
         fun loaderLookup(): SymbolLookup
+
+        @JvmStatic
         fun libraryLookup(name: String, arena: Arena): SymbolLookup
+
+        @JvmStatic
         fun libraryLookup(path: Path, arena: Arena): SymbolLookup
     }
 }
 
-@JvmInline
-expect value class Linker internal constructor(internal val value: Any) {
+expect class Linker internal constructor(value: Any) {
+    internal val value: Any
+
     fun downcallHandle(
         symbol: MemorySegment,
         descriptor: FunctionDescriptor
+    ): MethodHandle
+
+    fun downcallHandle(
+        symbol: MemorySegment,
+        descriptor: FunctionDescriptor,
+        vararg option: Option,
     ): MethodHandle
 
     fun upcallStub(
@@ -33,7 +46,26 @@ expect value class Linker internal constructor(internal val value: Any) {
 
     fun defaultLookup(): SymbolLookup
 
+    class Option internal constructor(value: Any) {
+        internal val value: Any
+
+        companion object {
+            @JvmStatic
+            fun firstVariadicArg(var0: Int): Option
+
+            @JvmStatic
+            fun captureCallState(vararg var0: String): Option
+
+            @JvmStatic
+            fun captureStateLayout(): StructLayout
+
+            @JvmStatic
+            fun critical(var0: Boolean): Option
+        }
+    }
+
     companion object {
+        @JvmStatic
         fun nativeLinker(): Linker
     }
 }
@@ -44,22 +76,34 @@ fun Linker.upcallStub(
     arena: Arena
 ): MemorySegment = upcallStub(MethodHandle(target), descriptor, arena)
 
-@JvmInline
-expect value class MethodHandle(val value: JMethodHandle) {
+expect class MethodHandle internal constructor(value: JMethodHandle) {
+    internal val value: JMethodHandle
+
     operator fun invoke(vararg args: Any?): Any?
+    fun invokeExact(vararg args: Any?): Any?
+
     fun bindTo(target: Any?): MethodHandle
+    fun asSpreader(klass: Class<*>, count: Int): MethodHandle
 }
 
-@JvmInline
-expect value class VarHandle(val value: Any) {
+expect class VarHandle internal constructor(value: Any) {
+    internal val value: Any
+
     fun set(vararg args: Any?)
     fun get(vararg args: Any?): Any?
 }
 
-@JvmInline
-expect value class FunctionDescriptor(val value: Any) {
+expect class FunctionDescriptor internal constructor(value: Any) {
+    internal val value: Any
+
+    expect fun appendArgumentLayouts(vararg layouts: MemoryLayout): FunctionDescriptor
+    expect fun argumentLayouts(): List<MemoryLayout>
+
     companion object {
+        @JvmStatic
         fun of(returnType: MemoryLayout, vararg parameters: MemoryLayout): FunctionDescriptor
+
+        @JvmStatic
         fun ofVoid(vararg parameters: MemoryLayout): FunctionDescriptor
     }
 }
@@ -69,7 +113,8 @@ interface SegmentAllocator {
     fun allocate(layout: MemoryLayout): MemorySegment
     fun allocate(layout: MemoryLayout, count: Long): MemorySegment
 
-    fun allocateFrom(str: String, charset: Charset = Charsets.UTF_8): MemorySegment
+    fun allocateFrom(str: String): MemorySegment
+    fun allocateFrom(str: String, charset: Charset): MemorySegment
     fun allocateFrom(layout: ValueLayout.OfByte, value: Byte): MemorySegment
     fun allocateFrom(layout: ValueLayout.OfChar, value: Char): MemorySegment
     fun allocateFrom(layout: ValueLayout.OfShort, value: Short): MemorySegment
@@ -88,13 +133,21 @@ interface SegmentAllocator {
     fun allocateFrom(elementLayout: ValueLayout.OfDouble, vararg values: Double): MemorySegment
 }
 
-@JvmInline
-expect value class Arena internal constructor(internal val value: Any) : SegmentAllocator,
+expect class Arena internal constructor(value: Any) : SegmentAllocator,
     AutoCloseable {
+    internal val value: Any
+
     companion object {
+        @JvmStatic
         fun ofAuto(): Arena
+
+        @JvmStatic
         fun ofShared(): Arena
+
+        @JvmStatic
         fun ofConfined(): Arena
+
+        @JvmStatic
         fun global(): Arena
     }
 
@@ -106,6 +159,7 @@ expect value class Arena internal constructor(internal val value: Any) : Segment
     override fun allocate(layout: MemoryLayout): MemorySegment
     override fun allocate(layout: MemoryLayout, count: Long): MemorySegment
 
+    override fun allocateFrom(str: String): MemorySegment
     override fun allocateFrom(str: String, charset: Charset): MemorySegment
     override fun allocateFrom(layout: ValueLayout.OfByte, value: Byte): MemorySegment
     override fun allocateFrom(layout: ValueLayout.OfChar, value: Char): MemorySegment
@@ -135,9 +189,11 @@ expect value class Arena internal constructor(internal val value: Any) : Segment
     ): MemorySegment
 }
 
-@JvmInline
-expect value class MemorySegment internal constructor(internal val value: Any) {
-    val address: Long
+expect class MemorySegment internal constructor(value: Any) {
+    internal val value: Any
+
+    fun address(): Long
+    fun byteSize(): Long
     fun asReadOnly(): MemorySegment
     fun asSlice(offset: Long, size: Long): MemorySegment
     fun asSlice(offset: Long, newSize: Long, byteAlignment: Long): MemorySegment
@@ -150,6 +206,8 @@ expect value class MemorySegment internal constructor(internal val value: Any) {
     ): MemorySegment
 
     fun getString(offset: Long, charset: Charset = Charsets.UTF_8): String
+    fun setString(offset: Long, value: String)
+    fun setString(offset: Long, value: String, charset: Charset)
     fun asByteBuffer(): ByteBuffer
 
     fun get(layout: ValueLayout.OfBoolean, offset: Long): Boolean
@@ -204,17 +262,37 @@ expect value class MemorySegment internal constructor(internal val value: Any) {
     }
 
     companion object {
+        @JvmStatic
+        fun ofBuffer(buffer: ByteBuffer): MemorySegment
+
+        @JvmStatic
         fun ofArray(values: ByteArray): MemorySegment
+
+        @JvmStatic
         fun ofArray(values: CharArray): MemorySegment
+
+        @JvmStatic
         fun ofArray(values: ShortArray): MemorySegment
+
+        @JvmStatic
         fun ofArray(values: IntArray): MemorySegment
+
+        @JvmStatic
         fun ofArray(values: LongArray): MemorySegment
+
+        @JvmStatic
         fun ofArray(values: FloatArray): MemorySegment
+
+        @JvmStatic
         fun ofArray(values: DoubleArray): MemorySegment
+
+        @JvmStatic
         fun ofAddress(address: Long): MemorySegment
 
+        @JvmStatic
         val NULL: MemorySegment
 
+        @JvmStatic
         fun copy(
             src: MemorySegment,
             srcOffset: Long,
@@ -223,6 +301,7 @@ expect value class MemorySegment internal constructor(internal val value: Any) {
             bytes: Long
         )
 
+        @JvmStatic
         fun copy(
             src: MemorySegment,
             srcElementLayout: ValueLayout,
@@ -233,6 +312,7 @@ expect value class MemorySegment internal constructor(internal val value: Any) {
             count: Long,
         )
 
+        @JvmStatic
         fun copy(
             src: MemorySegment,
             srcLayout: ValueLayout,
@@ -242,6 +322,7 @@ expect value class MemorySegment internal constructor(internal val value: Any) {
             count: Int
         )
 
+        @JvmStatic
         fun copy(
             srcArray: Any,
             srcIndex: Int,
@@ -251,6 +332,7 @@ expect value class MemorySegment internal constructor(internal val value: Any) {
             count: Int
         )
 
+        @JvmStatic
         fun mismatch(
             src: MemorySegment,
             srcRange: LongRange,
@@ -260,6 +342,10 @@ expect value class MemorySegment internal constructor(internal val value: Any) {
     }
 }
 
+internal expect class UnknownMemoryLayout internal constructor(value: Any) : MemoryLayout {
+    override val value: Any
+    override fun withName(name: String): UnknownMemoryLayout
+}
 
 expect sealed interface MemoryLayout {
     val value: Any
@@ -277,112 +363,156 @@ expect sealed interface MemoryLayout {
     open fun varHandle(path: List<PathElement>): VarHandle
     fun withName(name: String): MemoryLayout
 
-    @JvmInline
-    value class PathElement internal constructor(internal val value: Any) {
+    class PathElement internal constructor(value: Any) {
+        internal val value: Any
+
         companion object {
+            @JvmStatic
             fun groupElement(name: String): PathElement
+
+            @JvmStatic
             fun groupElement(index: Long): PathElement
+
+            @JvmStatic
             fun sequenceElement(index: Long): PathElement
         }
     }
 
     companion object {
+        @JvmStatic
         fun sequenceLayout(elementCount: Long, elementLayout: MemoryLayout): SequenceLayout
+
+        @JvmStatic
         fun structLayout(elements: List<MemoryLayout>): StructLayout
+
+        @JvmStatic
         fun paddingLayout(byteSize: Long): PaddingLayout
+
+        @JvmStatic
         fun unionLayout(elements: List<MemoryLayout>): UnionLayout
     }
 }
 
-@JvmInline
-expect value class SequenceLayout internal constructor(override val value: Any) : MemoryLayout {
+expect class SequenceLayout internal constructor(value: Any) : MemoryLayout {
+    override val value: Any
     override fun withName(name: String): SequenceLayout
 }
 
-@JvmInline
-expect value class GroupLayout internal constructor(override val value: Any) : MemoryLayout {
+expect class GroupLayout internal constructor(value: Any) : MemoryLayout {
+    override val value: Any
     override fun withName(name: String): GroupLayout
 }
 
-@JvmInline
-expect value class PaddingLayout internal constructor(override val value: Any) : MemoryLayout {
+expect class PaddingLayout internal constructor(value: Any) : MemoryLayout {
+    override val value: Any
     override fun withName(name: String): PaddingLayout
 }
 
-@JvmInline
-expect value class StructLayout internal constructor(override val value: Any) : MemoryLayout {
+expect class StructLayout internal constructor(value: Any) : MemoryLayout {
+    override val value: Any
     override fun withName(name: String): StructLayout
 }
 
-@JvmInline
-expect value class UnionLayout internal constructor(override val value: Any) : MemoryLayout {
+expect class UnionLayout internal constructor(value: Any) : MemoryLayout {
+    override val value: Any
     override fun withName(name: String): UnionLayout
 }
 
 expect sealed interface ValueLayout : MemoryLayout {
     override fun withName(name: String): ValueLayout
 
-    @JvmInline
-    value class OfBoolean internal constructor(override val value: Any) : ValueLayout {
+    class OfBoolean internal constructor(value: Any) : ValueLayout {
+        override val value: Any
         override fun withName(name: String): OfBoolean
     }
 
-    @JvmInline
-    value class OfByte internal constructor(override val value: Any) : ValueLayout {
+    class OfByte internal constructor(value: Any) : ValueLayout {
+        override val value: Any
         override fun withName(name: String): OfByte
     }
 
-    @JvmInline
-    value class OfChar internal constructor(override val value: Any) : ValueLayout {
+    class OfChar internal constructor(value: Any) : ValueLayout {
+        override val value: Any
         override fun withName(name: String): OfChar
     }
 
-    @JvmInline
-    value class OfShort internal constructor(override val value: Any) : ValueLayout {
+    class OfShort internal constructor(value: Any) : ValueLayout {
+        override val value: Any
         override fun withName(name: String): OfShort
     }
 
-    @JvmInline
-    value class OfInt internal constructor(override val value: Any) : ValueLayout {
+    class OfInt internal constructor(value: Any) : ValueLayout {
+        override val value: Any
         override fun withName(name: String): OfInt
     }
 
-    @JvmInline
-    value class OfLong internal constructor(override val value: Any) : ValueLayout {
+    class OfLong internal constructor(value: Any) : ValueLayout {
+        override val value: Any
         override fun withName(name: String): OfLong
     }
 
-    @JvmInline
-    value class OfFloat internal constructor(override val value: Any) : ValueLayout {
+    class OfFloat internal constructor(value: Any) : ValueLayout {
+        override val value: Any
         override fun withName(name: String): OfFloat
     }
 
-    @JvmInline
-    value class OfDouble internal constructor(override val value: Any) : ValueLayout {
+    class OfDouble internal constructor(value: Any) : ValueLayout {
+        override val value: Any
         override fun withName(name: String): OfDouble
     }
 
     companion object {
+        @JvmStatic
         val ADDRESS: AddressLayout
+
+        @JvmStatic
         val JAVA_BYTE: OfByte
+
+        @JvmStatic
         val JAVA_BOOLEAN: OfBoolean
+
+        @JvmStatic
         val JAVA_CHAR: OfChar
+
+        @JvmStatic
         val JAVA_SHORT: OfShort
+
+        @JvmStatic
         val JAVA_INT: OfInt
+
+        @JvmStatic
         val JAVA_LONG: OfLong
+
+        @JvmStatic
         val JAVA_FLOAT: OfFloat
+
+        @JvmStatic
         val JAVA_DOUBLE: OfDouble
+
+        @JvmStatic
         val ADDRESS_UNALIGNED: AddressLayout
+
+        @JvmStatic
         val JAVA_CHAR_UNALIGNED: OfChar
+
+        @JvmStatic
         val JAVA_SHORT_UNALIGNED: OfShort
+
+        @JvmStatic
         val JAVA_INT_UNALIGNED: OfInt
+
+        @JvmStatic
         val JAVA_LONG_UNALIGNED: OfLong
+
+        @JvmStatic
         val JAVA_FLOAT_UNALIGNED: OfFloat
+
+        @JvmStatic
         val JAVA_DOUBLE_UNALIGNED: OfDouble
     }
 }
 
-@JvmInline
-expect value class AddressLayout internal constructor(override val value: Any) : ValueLayout {
+expect class AddressLayout internal constructor(value: Any) : ValueLayout {
+    override val value: Any
     override fun withName(name: String): AddressLayout
 }
