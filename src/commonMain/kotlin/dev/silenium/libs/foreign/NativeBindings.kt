@@ -96,8 +96,8 @@ expect class VarHandle internal constructor(value: Any) {
 expect class FunctionDescriptor internal constructor(value: Any) {
     internal val value: Any
 
-    expect fun appendArgumentLayouts(vararg layouts: MemoryLayout): FunctionDescriptor
-    expect fun argumentLayouts(): List<MemoryLayout>
+    fun appendArgumentLayouts(vararg layouts: MemoryLayout): FunctionDescriptor
+    fun argumentLayouts(): List<MemoryLayout>
 
     companion object {
         @JvmStatic
