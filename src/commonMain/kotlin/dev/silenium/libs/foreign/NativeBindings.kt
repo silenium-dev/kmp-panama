@@ -79,12 +79,6 @@ expect class Linker internal constructor(value: Any) {
     }
 }
 
-fun Linker.upcallStub(
-    target: MethodHandle,
-    descriptor: FunctionDescriptor,
-    arena: Arena
-): MemorySegment = upcallStub(target, descriptor, arena)
-
 expect object MethodHandles {
     object Lookup {
         @Throws(ReflectiveOperationException::class)
