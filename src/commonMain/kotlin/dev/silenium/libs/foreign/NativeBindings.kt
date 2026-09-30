@@ -1,8 +1,11 @@
 package dev.silenium.libs.foreign
 
+import java.lang.invoke.MethodType
+import java.lang.reflect.Method
 import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.nio.file.Path
+import java.util.function.Consumer
 import java.lang.invoke.MethodHandle as JMethodHandle
 
 expect class SymbolLookup internal constructor(value: Any) {
@@ -28,6 +31,11 @@ expect class Linker internal constructor(value: Any) {
     internal val value: Any
 
     fun downcallHandle(
+        descriptor: FunctionDescriptor,
+        vararg option: Option,
+    ): MethodHandle
+
+    fun downcallHandle(
         symbol: MemorySegment,
         descriptor: FunctionDescriptor
     ): MethodHandle
@@ -45,6 +53,7 @@ expect class Linker internal constructor(value: Any) {
     ): MemorySegment
 
     fun defaultLookup(): SymbolLookup
+    fun canonicalLayouts(): Map<String, MemoryLayout>
 
     class Option internal constructor(value: Any) {
         internal val value: Any
@@ -71,10 +80,22 @@ expect class Linker internal constructor(value: Any) {
 }
 
 fun Linker.upcallStub(
-    target: JMethodHandle,
+    target: MethodHandle,
     descriptor: FunctionDescriptor,
     arena: Arena
-): MemorySegment = upcallStub(MethodHandle(target), descriptor, arena)
+): MemorySegment = upcallStub(target, descriptor, arena)
+
+expect object MethodHandles {
+    object Lookup {
+        @Throws(ReflectiveOperationException::class)
+        fun findVirtual(klass: Class<*>, name: String, type: MethodType): MethodHandle
+        @Throws(ReflectiveOperationException::class)
+        fun unreflect(method: Method): MethodHandle
+    }
+
+    @JvmStatic
+    fun lookup(): Lookup
+}
 
 expect class MethodHandle internal constructor(value: JMethodHandle) {
     internal val value: JMethodHandle
@@ -98,6 +119,7 @@ expect class FunctionDescriptor internal constructor(value: Any) {
 
     fun appendArgumentLayouts(vararg layouts: MemoryLayout): FunctionDescriptor
     fun argumentLayouts(): List<MemoryLayout>
+    fun toMethodType(): MethodType
 
     companion object {
         @JvmStatic
@@ -199,10 +221,11 @@ expect class MemorySegment internal constructor(value: Any) {
     fun asSlice(offset: Long, newSize: Long, byteAlignment: Long): MemorySegment
     fun asSlice(offset: Long, layout: MemoryLayout): MemorySegment
     fun asSlice(offset: Long): MemorySegment
+    fun reinterpret(size: Long): MemorySegment
     fun reinterpret(
         size: Long,
         arena: Arena? = null,
-        cleanup: ((MemorySegment) -> Unit)? = null
+        cleanup: Consumer<MemorySegment>? = {},
     ): MemorySegment
 
     fun getString(offset: Long, charset: Charset = Charsets.UTF_8): String
@@ -342,26 +365,28 @@ expect class MemorySegment internal constructor(value: Any) {
     }
 }
 
-internal expect class UnknownMemoryLayout internal constructor(value: Any) : MemoryLayout {
-    override val value: Any
-    override fun withName(name: String): UnknownMemoryLayout
-}
-
 expect sealed interface MemoryLayout {
     val value: Any
 
     @Suppress("RedundantModalityModifier")
-    open val byteSize: Long
+    open fun byteSize(): Long
 
     @Suppress("RedundantModalityModifier")
     open val byteAlignment: Long
 
     @Suppress("RedundantModalityModifier")
-    open fun byteOffset(path: List<PathElement>): Long
+    open fun byteOffset(vararg path: PathElement): Long
 
     @Suppress("RedundantModalityModifier")
-    open fun varHandle(path: List<PathElement>): VarHandle
+    open fun varHandle(vararg path: PathElement): VarHandle
     fun withName(name: String): MemoryLayout
+    fun withByteAlignment(alignment: Long): MemoryLayout
+
+    @Suppress("RedundantModalityModifier")
+    open fun select(vararg path: PathElement): MemoryLayout
+
+    @Suppress("RedundantModalityModifier")
+    open fun sliceHandle(vararg path: PathElement): MethodHandle
 
     class PathElement internal constructor(value: Any) {
         internal val value: Any
@@ -375,6 +400,12 @@ expect sealed interface MemoryLayout {
 
             @JvmStatic
             fun sequenceElement(index: Long): PathElement
+
+            @JvmStatic
+            fun sequenceElement(): PathElement
+
+            @JvmStatic
+            fun dereferenceElement(): PathElement
         }
     }
 
@@ -383,82 +414,101 @@ expect sealed interface MemoryLayout {
         fun sequenceLayout(elementCount: Long, elementLayout: MemoryLayout): SequenceLayout
 
         @JvmStatic
-        fun structLayout(elements: List<MemoryLayout>): StructLayout
+        fun structLayout(vararg elements: MemoryLayout): StructLayout
 
         @JvmStatic
         fun paddingLayout(byteSize: Long): PaddingLayout
 
         @JvmStatic
-        fun unionLayout(elements: List<MemoryLayout>): UnionLayout
+        fun unionLayout(vararg elements: MemoryLayout): UnionLayout
     }
 }
 
 expect class SequenceLayout internal constructor(value: Any) : MemoryLayout {
     override val value: Any
     override fun withName(name: String): SequenceLayout
+    override fun withByteAlignment(alignment: Long): SequenceLayout
+    fun elementCount(): Long
+    fun elementLayout(): MemoryLayout
 }
 
-expect class GroupLayout internal constructor(value: Any) : MemoryLayout {
+expect sealed interface GroupLayout : MemoryLayout {
     override val value: Any
     override fun withName(name: String): GroupLayout
+    override fun withByteAlignment(alignment: Long): GroupLayout
+
+    @Suppress("RedundantModalityModifier")
+    open fun memberLayouts(): List<MemoryLayout>
 }
 
 expect class PaddingLayout internal constructor(value: Any) : MemoryLayout {
     override val value: Any
     override fun withName(name: String): PaddingLayout
+    override fun withByteAlignment(alignment: Long): PaddingLayout
 }
 
-expect class StructLayout internal constructor(value: Any) : MemoryLayout {
+expect class StructLayout internal constructor(value: Any) : GroupLayout {
     override val value: Any
     override fun withName(name: String): StructLayout
+    override fun withByteAlignment(alignment: Long): StructLayout
 }
 
-expect class UnionLayout internal constructor(value: Any) : MemoryLayout {
+expect class UnionLayout internal constructor(value: Any) : GroupLayout {
     override val value: Any
     override fun withName(name: String): UnionLayout
+    override fun withByteAlignment(alignment: Long): UnionLayout
 }
 
 expect sealed interface ValueLayout : MemoryLayout {
     override fun withName(name: String): ValueLayout
+    override fun withByteAlignment(alignment: Long): ValueLayout
 
     class OfBoolean internal constructor(value: Any) : ValueLayout {
         override val value: Any
         override fun withName(name: String): OfBoolean
+        override fun withByteAlignment(alignment: Long): OfBoolean
     }
 
     class OfByte internal constructor(value: Any) : ValueLayout {
         override val value: Any
         override fun withName(name: String): OfByte
+        override fun withByteAlignment(alignment: Long): OfByte
     }
 
     class OfChar internal constructor(value: Any) : ValueLayout {
         override val value: Any
         override fun withName(name: String): OfChar
+        override fun withByteAlignment(alignment: Long): OfChar
     }
 
     class OfShort internal constructor(value: Any) : ValueLayout {
         override val value: Any
         override fun withName(name: String): OfShort
+        override fun withByteAlignment(alignment: Long): OfShort
     }
 
     class OfInt internal constructor(value: Any) : ValueLayout {
         override val value: Any
         override fun withName(name: String): OfInt
+        override fun withByteAlignment(alignment: Long): OfInt
     }
 
     class OfLong internal constructor(value: Any) : ValueLayout {
         override val value: Any
         override fun withName(name: String): OfLong
+        override fun withByteAlignment(alignment: Long): OfLong
     }
 
     class OfFloat internal constructor(value: Any) : ValueLayout {
         override val value: Any
         override fun withName(name: String): OfFloat
+        override fun withByteAlignment(alignment: Long): OfFloat
     }
 
     class OfDouble internal constructor(value: Any) : ValueLayout {
         override val value: Any
         override fun withName(name: String): OfDouble
+        override fun withByteAlignment(alignment: Long): OfDouble
     }
 
     companion object {
@@ -515,4 +565,8 @@ expect sealed interface ValueLayout : MemoryLayout {
 expect class AddressLayout internal constructor(value: Any) : ValueLayout {
     override val value: Any
     override fun withName(name: String): AddressLayout
+    override fun withByteAlignment(alignment: Long): AddressLayout
+    fun withTargetLayout(layout: MemoryLayout): AddressLayout
 }
+
+internal expect fun wrapLayout(inner: Any): MemoryLayout

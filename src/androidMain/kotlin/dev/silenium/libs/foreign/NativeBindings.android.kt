@@ -1,23 +1,33 @@
 package dev.silenium.libs.foreign
 
 import java.lang.invoke.MethodHandles
+import java.lang.invoke.MethodType
+import java.lang.reflect.Method
 import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.nio.file.Path
+import java.util.function.Consumer
 import kotlin.jvm.optionals.getOrNull
 import kotlin.reflect.jvm.javaMethod
 import com.v7878.foreign.AddressLayout as FAddressLayout
 import com.v7878.foreign.Arena as FArena
 import com.v7878.foreign.FunctionDescriptor as FFunctionDescriptor
+import com.v7878.foreign.GroupLayout as FGroupLayout
 import com.v7878.foreign.Linker as FLinker
 import com.v7878.foreign.MemoryLayout as FMemoryLayout
 import com.v7878.foreign.MemorySegment as FMemorySegment
+import com.v7878.foreign.PaddingLayout as FPaddingLayout
+import com.v7878.foreign.SequenceLayout as FSequenceLayout
+import com.v7878.foreign.StructLayout as FStructLayout
 import com.v7878.foreign.SymbolLookup as FSymbolLookup
+import com.v7878.foreign.UnionLayout as FUnionLayout
 import com.v7878.foreign.ValueLayout as FValueLayout
 import com.v7878.invoke.VarHandle as JVarHandle
 import java.lang.invoke.MethodHandle as JMethodHandle
+import java.lang.invoke.MethodHandles as JMethodHandles
 
-actual class SymbolLookup internal actual constructor(internal actual val value: Any) {
+@ConsistentCopyVisibility
+actual data class SymbolLookup internal actual constructor(internal actual val value: Any) {
     internal val lookup: FSymbolLookup get() = value as FSymbolLookup
 
     actual fun find(name: String) = lookup.find(name).getOrNull()?.let(::MemorySegment)
@@ -65,8 +75,17 @@ object SegmentMapper {
     }
 }
 
-actual class Linker internal actual constructor(internal actual val value: Any) {
+@ConsistentCopyVisibility
+actual data class Linker internal actual constructor(internal actual val value: Any) {
     internal val linker: FLinker get() = value as FLinker
+
+    actual fun downcallHandle(
+        descriptor: FunctionDescriptor,
+        vararg option: Option,
+    ): MethodHandle = linker.downcallHandle(
+        descriptor.descriptor,
+        *option.map(Option::option).toTypedArray()
+    ).let(::MethodHandle)
 
     actual fun downcallHandle(
         symbol: MemorySegment,
@@ -99,7 +118,11 @@ actual class Linker internal actual constructor(internal actual val value: Any) 
     actual fun defaultLookup(): SymbolLookup =
         linker.defaultLookup().let(::SymbolLookup)
 
-    actual class Option internal actual constructor(internal actual val value: Any) {
+    actual fun canonicalLayouts(): Map<String, MemoryLayout> =
+        linker.canonicalLayouts().mapValues(::wrapLayout)
+
+    @ConsistentCopyVisibility
+actual data class Option internal actual constructor(internal actual val value: Any) {
         internal val option get() = value as FLinker.Option
 
         actual companion object {
@@ -128,22 +151,23 @@ actual class Linker internal actual constructor(internal actual val value: Any) 
     }
 }
 
-actual class VarHandle internal actual constructor(internal actual val value: Any) {
-    internal val varHandle: JVarHandle get() = value as JVarHandle
-    actual fun set(vararg args: Any?) {
-        val mappedArgs = args.map(Any?::toNative)
-        varHandle.toMethodHandle(JVarHandle.AccessMode.SET).invokeWithArguments(mappedArgs)
+actual object MethodHandles {
+    actual object Lookup {
+        @Throws(ReflectiveOperationException::class)
+        actual fun findVirtual(klass: Class<*>, name: String, type: MethodType): MethodHandle =
+            JMethodHandles.lookup().findVirtual(klass, name, type).let(::MethodHandle)
+
+        @Throws(ReflectiveOperationException::class)
+        actual fun unreflect(method: Method): MethodHandle =
+            JMethodHandles.lookup().unreflect(method).let(::MethodHandle)
     }
 
-    actual fun get(vararg args: Any?): Any? {
-        val mappedArgs = args.map(Any?::toNative)
-        val result =
-            varHandle.toMethodHandle(JVarHandle.AccessMode.GET).invokeWithArguments(mappedArgs)
-        return result.fromNative()
-    }
+    @JvmStatic
+    actual fun lookup(): Lookup = Lookup
 }
 
-actual class MethodHandle internal actual constructor(internal actual val value: JMethodHandle) {
+@ConsistentCopyVisibility
+actual data class MethodHandle internal actual constructor(internal actual val value: JMethodHandle) {
     actual operator fun invoke(vararg args: Any?): Any? {
         val mappedArgs = args.map(Any?::toNative)
         val result = value.invokeWithArguments(mappedArgs)
@@ -163,6 +187,22 @@ actual class MethodHandle internal actual constructor(internal actual val value:
         value.asSpreader(klass, count).let(::MethodHandle)
 }
 
+@ConsistentCopyVisibility
+actual data class VarHandle internal actual constructor(internal actual val value: Any) {
+    internal val varHandle: JVarHandle get() = value as JVarHandle
+    actual fun set(vararg args: Any?) {
+        val mappedArgs = args.map(Any?::toNative)
+        varHandle.toMethodHandle(JVarHandle.AccessMode.SET).invokeWithArguments(mappedArgs)
+    }
+
+    actual fun get(vararg args: Any?): Any? {
+        val mappedArgs = args.map(Any?::toNative)
+        val result =
+            varHandle.toMethodHandle(JVarHandle.AccessMode.GET).invokeWithArguments(mappedArgs)
+        return result.fromNative()
+    }
+}
+
 private fun Any?.toNative() = when (this) {
     is MemorySegment -> segment
     else -> this
@@ -173,7 +213,8 @@ private fun Any?.fromNative() = when (this) {
     else -> this
 }
 
-actual class FunctionDescriptor internal actual constructor(internal actual val value: Any) {
+@ConsistentCopyVisibility
+actual data class FunctionDescriptor internal actual constructor(internal actual val value: Any) {
     internal val descriptor: FFunctionDescriptor get() = value as FFunctionDescriptor
 
     actual fun appendArgumentLayouts(vararg layouts: MemoryLayout): FunctionDescriptor =
@@ -181,8 +222,9 @@ actual class FunctionDescriptor internal actual constructor(internal actual val 
             .let(::FunctionDescriptor)
 
     actual fun argumentLayouts(): List<MemoryLayout> =
-        descriptor.argumentLayouts().map(::UnknownMemoryLayout)
+        descriptor.argumentLayouts().map(::wrapLayout)
 
+    actual fun toMethodType(): MethodType = descriptor.toMethodType()
 
     actual companion object {
         @JvmStatic
@@ -203,7 +245,8 @@ actual class FunctionDescriptor internal actual constructor(internal actual val 
     }
 }
 
-actual class Arena internal actual constructor(internal actual val value: Any) : SegmentAllocator,
+@ConsistentCopyVisibility
+actual data class Arena internal actual constructor(internal actual val value: Any) : SegmentAllocator,
     AutoCloseable {
     internal val arena: FArena get() = value as FArena
 
@@ -299,7 +342,8 @@ actual class Arena internal actual constructor(internal actual val value: Any) :
     }
 }
 
-actual class MemorySegment internal actual constructor(internal actual val value: Any) {
+@ConsistentCopyVisibility
+actual data class MemorySegment internal actual constructor(internal actual val value: Any) {
     internal val segment: FMemorySegment get() = value as FMemorySegment
 
     actual fun address(): Long = segment.address()
@@ -317,17 +361,19 @@ actual class MemorySegment internal actual constructor(internal actual val value
     actual fun asSlice(offset: Long): MemorySegment =
         segment.asSlice(offset).let(::MemorySegment)
 
+    actual fun reinterpret(size: Long) = MemorySegment(segment.reinterpret(size))
+
     actual fun reinterpret(
         size: Long,
         arena: Arena?,
-        cleanup: ((MemorySegment) -> Unit)?,
+        cleanup: Consumer<MemorySegment>?,
     ): MemorySegment = when {
         arena == null -> segment.reinterpret(size)
         else -> segment.reinterpret(
             size,
             arena.arena,
             cleanup?.let { cleanup ->
-                { cleanup(MemorySegment(it)) }
+                { cleanup.accept(MemorySegment(it)) }
             }
         )
     }.let(::MemorySegment)
@@ -455,7 +501,8 @@ actual class MemorySegment internal actual constructor(internal actual val value
     actual fun copyFrom(src: MemorySegment): MemorySegment =
         segment.copyFrom(src.segment).let(::MemorySegment)
 
-    actual class Scope(val scope: FMemorySegment.Scope) {
+    @ConsistentCopyVisibility
+actual data class Scope(val scope: FMemorySegment.Scope) {
         actual val isAlive: Boolean get() = scope.isAlive
     }
 
@@ -578,27 +625,29 @@ actual class MemorySegment internal actual constructor(internal actual val value
     }
 }
 
-internal actual class UnknownMemoryLayout internal actual constructor(actual override val value: Any) :
-    MemoryLayout {
-    override val layout: FMemoryLayout get() = value as FMemoryLayout
-    actual override fun withName(name: String): UnknownMemoryLayout =
-        layout.withName(name).let(::UnknownMemoryLayout)
-}
-
 actual sealed interface MemoryLayout {
     actual val value: Any
     val layout: FMemoryLayout
-    actual val byteSize: Long get() = layout.byteSize()
+    actual fun byteSize(): Long = layout.byteSize()
     actual val byteAlignment: Long get() = layout.byteAlignment()
-    actual fun byteOffset(path: List<PathElement>) =
+    actual fun byteOffset(vararg path: PathElement) =
         layout.byteOffset(*path.map(PathElement::element).toTypedArray())
 
-    actual fun varHandle(path: List<PathElement>): VarHandle =
+    actual fun varHandle(vararg path: PathElement): VarHandle =
         layout.varHandle(*path.map(PathElement::element).toTypedArray()).let(::VarHandle)
 
     actual fun withName(name: String): MemoryLayout
+    actual fun withByteAlignment(alignment: Long): MemoryLayout
+    actual fun select(vararg path: PathElement): MemoryLayout =
+        layout.select(*path.map(PathElement::element).toTypedArray())
+            .let(::wrapLayout)
 
-    actual class PathElement internal actual constructor(internal actual val value: Any) {
+    actual fun sliceHandle(vararg path: PathElement): MethodHandle =
+        layout.sliceHandle(*path.map(PathElement::element).toTypedArray())
+            .let(::MethodHandle)
+
+    @ConsistentCopyVisibility
+actual data class PathElement internal actual constructor(internal actual val value: Any) {
         constructor(element: FMemoryLayout.PathElement) : this(element as Any)
 
         internal val element: FMemoryLayout.PathElement get() = value as FMemoryLayout.PathElement
@@ -615,6 +664,14 @@ actual sealed interface MemoryLayout {
             @JvmStatic
             actual fun sequenceElement(index: Long): PathElement =
                 FMemoryLayout.PathElement.sequenceElement(index).let(::PathElement)
+
+            @JvmStatic
+            actual fun sequenceElement(): PathElement =
+                FMemoryLayout.PathElement.sequenceElement().let(::PathElement)
+
+            @JvmStatic
+            actual fun dereferenceElement(): PathElement =
+                FMemoryLayout.PathElement.dereferenceElement().let(::PathElement)
         }
     }
 
@@ -624,7 +681,7 @@ actual sealed interface MemoryLayout {
             FMemoryLayout.sequenceLayout(elementCount, elementLayout.layout).let(::SequenceLayout)
 
         @JvmStatic
-        actual fun structLayout(elements: List<MemoryLayout>): StructLayout =
+        actual fun structLayout(vararg elements: MemoryLayout): StructLayout =
             FMemoryLayout.structLayout(*elements.map { it.layout }.toTypedArray())
                 .let(::StructLayout)
 
@@ -633,125 +690,177 @@ actual sealed interface MemoryLayout {
             FMemoryLayout.paddingLayout(byteSize).let(::PaddingLayout)
 
         @JvmStatic
-        actual fun unionLayout(elements: List<MemoryLayout>): UnionLayout =
+        actual fun unionLayout(vararg elements: MemoryLayout): UnionLayout =
             FMemoryLayout.unionLayout(*elements.map { it.layout }.toTypedArray())
                 .let(::UnionLayout)
     }
 }
 
-actual class SequenceLayout internal actual constructor(actual override val value: Any) :
+@ConsistentCopyVisibility
+actual data class SequenceLayout internal actual constructor(actual override val value: Any) :
     MemoryLayout {
-    override val layout: FMemoryLayout
-        get() = value as FMemoryLayout
+    override val layout: FSequenceLayout
+        get() = value as FSequenceLayout
 
     actual override fun withName(name: String): SequenceLayout =
         layout.withName(name).let(::SequenceLayout)
+
+    actual override fun withByteAlignment(alignment: Long): SequenceLayout =
+        layout.withByteAlignment(alignment).let(::SequenceLayout)
+
+    actual fun elementCount(): Long = layout.elementCount()
+    actual fun elementLayout(): MemoryLayout = layout.elementLayout().let(::wrapLayout)
 }
 
-actual class GroupLayout internal actual constructor(actual override val value: Any) :
-    MemoryLayout {
-    override val layout: FMemoryLayout
-        get() = value as FMemoryLayout
-
-    actual override fun withName(name: String): GroupLayout =
-        layout.withName(name).let(::GroupLayout)
+actual sealed interface GroupLayout : MemoryLayout {
+    override val layout: FGroupLayout
+        get() = value as FGroupLayout
+    actual override val value: Any
+    actual override fun withName(name: String): GroupLayout
+    actual override fun withByteAlignment(alignment: Long): GroupLayout
+    actual fun memberLayouts(): List<MemoryLayout> =
+        layout.memberLayouts().map(::wrapLayout)
 }
 
-actual class PaddingLayout internal actual constructor(actual override val value: Any) :
+@ConsistentCopyVisibility
+actual data class PaddingLayout internal actual constructor(actual override val value: Any) :
     MemoryLayout {
     override val layout: FMemoryLayout
         get() = value as FMemoryLayout
 
     actual override fun withName(name: String): PaddingLayout =
         layout.withName(name).let(::PaddingLayout)
+
+    actual override fun withByteAlignment(alignment: Long) =
+        layout.withByteAlignment(alignment).let(::PaddingLayout)
 }
 
-actual class StructLayout internal actual constructor(actual override val value: Any) :
-    MemoryLayout {
-    override val layout: FMemoryLayout
-        get() = value as FMemoryLayout
+@ConsistentCopyVisibility
+actual data class StructLayout internal actual constructor(actual override val value: Any) :
+    GroupLayout {
+    override val layout: FStructLayout
+        get() = value as FStructLayout
 
     actual override fun withName(name: String): StructLayout =
         layout.withName(name).let(::StructLayout)
+
+    actual override fun withByteAlignment(alignment: Long) =
+        layout.withByteAlignment(alignment).let(::StructLayout)
 }
 
-actual class UnionLayout internal actual constructor(actual override val value: Any) :
-    MemoryLayout {
-    override val layout: FMemoryLayout
-        get() = value as FMemoryLayout
+@ConsistentCopyVisibility
+actual data class UnionLayout internal actual constructor(actual override val value: Any) :
+    GroupLayout {
+    override val layout: FUnionLayout
+        get() = value as FUnionLayout
 
     actual override fun withName(name: String): UnionLayout =
         layout.withName(name).let(::UnionLayout)
+
+    actual override fun withByteAlignment(alignment: Long) =
+        layout.withByteAlignment(alignment).let(::UnionLayout)
 }
 
 actual sealed interface ValueLayout : MemoryLayout {
     abstract override val layout: FValueLayout
 
     actual override fun withName(name: String): ValueLayout
+    actual override fun withByteAlignment(alignment: Long): ValueLayout
 
-    actual class OfBoolean internal actual constructor(actual override val value: Any) :
+    @ConsistentCopyVisibility
+actual data class OfBoolean internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfBoolean get() = value as FValueLayout.OfBoolean
 
         actual override fun withName(name: String): OfBoolean =
             layout.withName(name).let(::OfBoolean)
 
+        actual override fun withByteAlignment(alignment: Long) =
+            layout.withByteAlignment(alignment).let(::OfBoolean)
     }
 
-    actual class OfByte internal actual constructor(actual override val value: Any) :
+    @ConsistentCopyVisibility
+actual data class OfByte internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfByte get() = value as FValueLayout.OfByte
 
         actual override fun withName(name: String): OfByte =
             layout.withName(name).let(::OfByte)
+
+        actual override fun withByteAlignment(alignment: Long) =
+            layout.withByteAlignment(alignment).let(::OfByte)
     }
 
-    actual class OfChar internal actual constructor(actual override val value: Any) :
+    @ConsistentCopyVisibility
+actual data class OfChar internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfChar get() = value as FValueLayout.OfChar
 
         actual override fun withName(name: String): OfChar =
             layout.withName(name).let(::OfChar)
+
+        actual override fun withByteAlignment(alignment: Long) =
+            layout.withByteAlignment(alignment).let(::OfChar)
     }
 
-    actual class OfShort internal actual constructor(actual override val value: Any) :
+    @ConsistentCopyVisibility
+actual data class OfShort internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfShort get() = value as FValueLayout.OfShort
 
         actual override fun withName(name: String): OfShort =
             layout.withName(name).let(::OfShort)
+
+        actual override fun withByteAlignment(alignment: Long) =
+            layout.withByteAlignment(alignment).let(::OfShort)
     }
 
-    actual class OfInt internal actual constructor(actual override val value: Any) :
+    @ConsistentCopyVisibility
+actual data class OfInt internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfInt get() = value as FValueLayout.OfInt
 
         actual override fun withName(name: String): OfInt =
             layout.withName(name).let(::OfInt)
+
+        actual override fun withByteAlignment(alignment: Long) =
+            layout.withByteAlignment(alignment).let(::OfInt)
     }
 
-    actual class OfLong internal actual constructor(actual override val value: Any) :
+    @ConsistentCopyVisibility
+actual data class OfLong internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfLong get() = value as FValueLayout.OfLong
 
         actual override fun withName(name: String): OfLong =
             layout.withName(name).let(::OfLong)
+
+        actual override fun withByteAlignment(alignment: Long) =
+            layout.withByteAlignment(alignment).let(::OfLong)
     }
 
-    actual class OfFloat internal actual constructor(actual override val value: Any) :
+    @ConsistentCopyVisibility
+actual data class OfFloat internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfFloat get() = value as FValueLayout.OfFloat
 
         actual override fun withName(name: String): OfFloat =
             layout.withName(name).let(::OfFloat)
+
+        actual override fun withByteAlignment(alignment: Long) =
+            layout.withByteAlignment(alignment).let(::OfFloat)
     }
 
-    actual class OfDouble internal actual constructor(actual override val value: Any) :
+    @ConsistentCopyVisibility
+actual data class OfDouble internal actual constructor(actual override val value: Any) :
         ValueLayout {
         override val layout: FValueLayout.OfDouble get() = value as FValueLayout.OfDouble
 
         actual override fun withName(name: String): OfDouble =
             layout.withName(name).let(::OfDouble)
+
+        actual override fun withByteAlignment(alignment: Long) =
+            layout.withByteAlignment(alignment).let(::OfDouble)
     }
 
     actual companion object {
@@ -821,10 +930,34 @@ actual sealed interface ValueLayout : MemoryLayout {
     }
 }
 
-actual class AddressLayout internal actual constructor(actual override val value: Any) :
+@ConsistentCopyVisibility
+actual data class AddressLayout internal actual constructor(actual override val value: Any) :
     ValueLayout {
     override val layout: FAddressLayout get() = value as FAddressLayout
 
     actual override fun withName(name: String): AddressLayout =
         layout.withName(name).let(::AddressLayout)
+
+    actual override fun withByteAlignment(alignment: Long): AddressLayout =
+        layout.withByteAlignment(alignment).let(::AddressLayout)
+
+    actual fun withTargetLayout(layout: MemoryLayout): AddressLayout =
+        this.layout.withTargetLayout(layout.layout).let(::AddressLayout)
+}
+
+internal actual fun wrapLayout(inner: Any): MemoryLayout = when (inner) {
+    is FStructLayout -> StructLayout(inner)
+    is FUnionLayout -> UnionLayout(inner)
+    is FPaddingLayout -> PaddingLayout(inner)
+    is FSequenceLayout -> SequenceLayout(inner)
+    is FAddressLayout -> AddressLayout(inner)
+    is FValueLayout.OfBoolean -> ValueLayout.OfBoolean(inner)
+    is FValueLayout.OfByte -> ValueLayout.OfByte(inner)
+    is FValueLayout.OfChar -> ValueLayout.OfChar(inner)
+    is FValueLayout.OfDouble -> ValueLayout.OfDouble(inner)
+    is FValueLayout.OfFloat -> ValueLayout.OfFloat(inner)
+    is FValueLayout.OfInt -> ValueLayout.OfInt(inner)
+    is FValueLayout.OfLong -> ValueLayout.OfLong(inner)
+    is FValueLayout.OfShort -> ValueLayout.OfShort(inner)
+    else -> throw IllegalArgumentException("Unknown layout type: ${inner::class}")
 }
