@@ -5,6 +5,7 @@ import dev.silenium.libs.foreign.FunctionDescriptor
 import dev.silenium.libs.foreign.Linker
 import dev.silenium.libs.foreign.MemorySegment
 import dev.silenium.libs.foreign.MethodHandles
+import dev.silenium.libs.foreign.lookup
 import kotlin.reflect.KFunction
 import kotlin.reflect.jvm.javaMethod
 

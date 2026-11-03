@@ -7,6 +7,7 @@ import java.nio.charset.Charset
 import java.nio.file.Path
 import java.util.function.Consumer
 import java.lang.invoke.MethodHandle as JMethodHandle
+import java.lang.invoke.MethodHandles as JMethodHandles
 
 expect class SymbolLookup internal constructor(value: Any) {
     internal val value: Any
@@ -80,7 +81,7 @@ expect class Linker internal constructor(value: Any) {
 }
 
 expect object MethodHandles {
-    object Lookup {
+    class Lookup {
         @Throws(ReflectiveOperationException::class)
         fun findVirtual(klass: Class<*>, name: String, type: MethodType): MethodHandle
         @Throws(ReflectiveOperationException::class)
@@ -88,8 +89,11 @@ expect object MethodHandles {
     }
 
     @JvmStatic
-    fun lookup(): Lookup
+    fun lookup(lookup: JMethodHandles.Lookup): Lookup
 }
+
+@Suppress("NOTHING_TO_INLINE") // Must inline to avoid issues with caller-sensitive MethodHandles.lookup()
+inline fun MethodHandles.lookup() = lookup(JMethodHandles.lookup())
 
 expect class MethodHandle internal constructor(value: JMethodHandle) {
     internal val value: JMethodHandle
