@@ -501,7 +501,6 @@ actual data class MemorySegment internal actual constructor(internal actual val 
     actual fun copyFrom(src: MemorySegment): MemorySegment =
         segment.copyFrom(src.segment).let(::MemorySegment)
 
-    @ConsistentCopyVisibility
     actual data class Scope(val scope: FMemorySegment.Scope) {
         actual val isAlive: Boolean get() = scope.isAlive
     }
