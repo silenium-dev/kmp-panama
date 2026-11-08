@@ -3,7 +3,6 @@ import dev.silenium.gradle.conventions.android
 import dev.silenium.gradle.conventions.compileSdk
 import dev.silenium.gradle.conventions.jvm
 import dev.silenium.gradle.conventions.publishing
-import org.jetbrains.dokka.gradle.engine.parameters.KotlinPlatform
 
 plugins {
     dev.silenium.gradle.conventions.kmp
