@@ -2,6 +2,7 @@ package dev.silenium.libs.foreign.ext
 
 import org.slf4j.LoggerFactory
 import java.util.concurrent.atomic.AtomicBoolean
+import dev.silenium.libs.foreign.util.Synchronized
 
 abstract class DoubleDestructionProtection<V> : AutoCloseable {
     abstract val value: V
